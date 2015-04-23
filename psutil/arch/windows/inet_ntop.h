@@ -1,3 +1,10 @@
 #include <ws2tcpip.h>
 
-const char* inet_ntop(int af, const void *src, char *dst, socklen_t cnt);
+PCSTR
+WSAAPI
+inet_ntop(
+    __in                                INT             Family,
+    __in                                PVOID           pAddr,
+    __out_ecount(StringBufSize)         PSTR            pStringBuf,
+    __in                                size_t          StringBufSize
+    );
