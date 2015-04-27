@@ -268,10 +268,6 @@ cleanup:
     g_dwSize = 0;
     g_dwLength = 0;
 
-    if (hMap != NULL)
-        CloseHandle(hMap);
-    hMap = NULL;
-
     if (g_hFile != NULL)
         CloseHandle(g_hFile);
     g_hFile = NULL;
