@@ -74,7 +74,6 @@ psutil_get_open_files_ntqueryobject(long dwPid, HANDLE hProcess)
     DWORD                               dwInfoSize = 0x10000;
     DWORD                               dwRet = 0;
     PSYSTEM_HANDLE_TABLE_ENTRY_INFO_EX  hHandle = NULL;
-    HANDLE                              hMap = NULL;
     DWORD                               i = 0;
     BOOLEAN                             error = FALSE;
     PyObject*                           pyListFiles = NULL;
@@ -168,22 +167,6 @@ psutil_get_open_files_ntqueryobject(long dwPid, HANDLE hProcess)
             goto loop_cleanup;
         }
 
-        hMap = CreateFileMapping(g_hFile, NULL, PAGE_READONLY, 0, 0, NULL);
-        if (hMap == NULL)
-        {
-            /*
-            printf("[%d] CreateFileMapping (%#x): %#x \n",
-                   dwPid,
-                   hHandle->HandleValue,
-                   GetLastError());
-            */
-            if (GetLastError() == ERROR_BAD_EXE_FORMAT || 
-                GetLastError() == ERROR_INVALID_HANDLE)
-            {
-                goto loop_cleanup;
-            }
-        }
-
         // Guess buffer size is MAX_PATH + 1
         g_dwLength = (MAX_PATH+1) * sizeof(WCHAR);
 
@@ -272,10 +255,6 @@ loop_cleanup:
         g_pNameBuffer = NULL;
         g_dwSize = 0;
         g_dwLength = 0;
-
-        if (hMap != NULL)
-            CloseHandle(hMap);
-        hMap = NULL;
 
         if (g_hFile != NULL)
             CloseHandle(g_hFile);
@@ -478,11 +457,7 @@ psutil_get_open_files_getmappedfilename(long dwPid, HANDLE hProcess)
                    hHandle->HandleValue,
                    GetLastError());
             */
-            if (GetLastError() == ERROR_BAD_EXE_FORMAT || 
-                GetLastError() == ERROR_INVALID_HANDLE)
-            {
-                goto loop_cleanup;
-            }
+            goto loop_cleanup;
         }
 
         pMem = MapViewOfFile(hMap, FILE_MAP_READ, 0, 0, 1);
