@@ -168,7 +168,7 @@ psutil_get_open_files_ntqueryobject(long dwPid, HANDLE hProcess)
             goto loop_cleanup;
         }
 
-        hMap = CreateFileMapping(hFile, NULL, PAGE_READONLY, 0, 0, NULL);
+        hMap = CreateFileMapping(g_hFile, NULL, PAGE_READONLY, 0, 0, NULL);
         if (hMap == NULL)
         {
             /*
