@@ -72,7 +72,7 @@ else:
 # conf for retry_before_failing() decorator
 NO_RETRIES = 10
 # bytes tolerance for OS memory related tests
-TOLERANCE = 500 * 1024  # 500KB
+MEMORY_TOLERANCE = 500 * 1024  # 500KB
 # the timeout used in functions which have to wait
 GLOBAL_TIMEOUT = 3
 
@@ -1069,13 +1069,19 @@ class TestSystemAPIs(unittest.TestCase):
                     s = socket.socket(af, socktype, proto)
                     with contextlib.closing(s):
                         s.bind(sa)
-                for ip in (addr.address, addr.netmask, addr.broadcast):
+                for ip in (addr.address, addr.netmask, addr.broadcast,
+                           addr.ptp):
                     if ip is not None:
                         # TODO: skip AF_INET6 for now because I get:
                         # AddressValueError: Only hex digits permitted in
                         # u'c6f3%lxcbr0' in u'fe80::c8e0:fff:fe54:c6f3%lxcbr0'
                         if addr.family != AF_INET6:
                             check_ip_address(ip, addr.family)
+                # broadcast and ptp addresses are mutually exclusive
+                if addr.broadcast:
+                    self.assertIsNone(addr.ptp)
+                elif addr.ptp:
+                    self.assertIsNone(addr.broadcast)
 
         if BSD or OSX or SUNOS:
             if hasattr(socket, "AF_LINK"):
@@ -1494,6 +1500,55 @@ class TestProcess(unittest.TestCase):
         with self.assertRaises(ValueError):
             p.rlimit(psutil.RLIMIT_NOFILE, (5, 5, 5))
 
+    @unittest.skipUnless(LINUX and RLIMIT_SUPPORT,
+                         "only available on Linux >= 2.6.36")
+    def test_rlimit(self):
+        p = psutil.Process()
+        soft, hard = p.rlimit(psutil.RLIMIT_FSIZE)
+        try:
+            p.rlimit(psutil.RLIMIT_FSIZE, (1024, hard))
+            with open(TESTFN, "wb") as f:
+                f.write(b"X" * 1024)
+            # write() or flush() doesn't always cause the exception
+            # but close() will.
+            with self.assertRaises(IOError) as exc:
+                with open(TESTFN, "wb") as f:
+                    f.write(b"X" * 1025)
+            self.assertEqual(exc.exception.errno if PY3 else exc.exception[0],
+                             errno.EFBIG)
+        finally:
+            p.rlimit(psutil.RLIMIT_FSIZE, (soft, hard))
+            self.assertEqual(p.rlimit(psutil.RLIMIT_FSIZE), (soft, hard))
+
+    @unittest.skipUnless(LINUX and RLIMIT_SUPPORT,
+                         "only available on Linux >= 2.6.36")
+    def test_rlimit_infinity(self):
+        # First set a limit, then re-set it by specifying INFINITY
+        # and assume we overridden the previous limit.
+        p = psutil.Process()
+        soft, hard = p.rlimit(psutil.RLIMIT_FSIZE)
+        try:
+            p.rlimit(psutil.RLIMIT_FSIZE, (1024, hard))
+            p.rlimit(psutil.RLIMIT_FSIZE, (psutil.RLIM_INFINITY, hard))
+            with open(TESTFN, "wb") as f:
+                f.write(b"X" * 2048)
+        finally:
+            p.rlimit(psutil.RLIMIT_FSIZE, (soft, hard))
+            self.assertEqual(p.rlimit(psutil.RLIMIT_FSIZE), (soft, hard))
+
+    @unittest.skipUnless(LINUX and RLIMIT_SUPPORT,
+                         "only available on Linux >= 2.6.36")
+    def test_rlimit_infinity_value(self):
+        # RLIMIT_FSIZE should be RLIM_INFINITY, which will be a really
+        # big number on a platform with large file support.  On these
+        # platforms we need to test that the get/setrlimit functions
+        # properly convert the number to a C long long and that the
+        # conversion doesn't raise an error.
+        p = psutil.Process()
+        soft, hard = p.rlimit(psutil.RLIMIT_FSIZE)
+        self.assertEqual(psutil.RLIM_INFINITY, hard)
+        p.rlimit(psutil.RLIMIT_FSIZE, (soft, hard))
+
     def test_num_threads(self):
         # on certain platforms such as Linux we might test for exact
         # thread number, since we always have with 1 thread per process,
@@ -1646,11 +1701,15 @@ class TestProcess(unittest.TestCase):
         # with funky chars such as spaces and ")", see:
         # https://github.com/giampaolo/psutil/issues/628
         # funky_path = os.path.join(tempfile.gettempdir(), "foo bar )")
+        if OSX:
+            tmpdir = "/private/tmp"
+        else:
+            tmpdir = "/tmp"
         fd, funky_path = tempfile.mkstemp(
-            prefix='psutil-', suffix='foo bar )', dir="/tmp")
+            prefix='psutil-', suffix='foo bar )', dir=tmpdir)
         os.close(fd)
         fd, c_file = tempfile.mkstemp(
-            prefix='psutil-', suffix='.c', dir="/tmp")
+            prefix='psutil-', suffix='.c', dir=tmpdir)
         os.close(fd)
         self.addCleanup(safe_remove, c_file)
         self.addCleanup(safe_remove, funky_path)
@@ -2156,11 +2215,12 @@ class TestProcess(unittest.TestCase):
         sproc = get_test_subprocess()
         p = psutil.Process(sproc.pid)
         p.terminate()
-        retcode = p.wait()
+        p.wait()
         # if WINDOWS:
         #     wait_for_pid(p.pid)
         self.assertFalse(p.is_running())
-        self.assertFalse(p.pid in psutil.pids(), msg="retcode = %s" % retcode)
+        # self.assertFalse(p.pid in psutil.pids(), msg="retcode = %s" %
+        #   retcode)
 
         excluded_names = ['pid', 'is_running', 'wait', 'create_time']
         if LINUX and not RLIMIT_SUPPORT:
@@ -2946,6 +3006,13 @@ class TestExampleScripts(unittest.TestCase):
                     # self.assert_stdout(name)
                     self.fail('no test defined for %r script'
                               % os.path.join(EXAMPLES_DIR, name))
+
+    def test_executable(self):
+        for name in os.listdir(EXAMPLES_DIR):
+            if name.endswith('.py'):
+                path = os.path.join(EXAMPLES_DIR, name)
+                if not stat.S_IXUSR & os.stat(path)[stat.ST_MODE]:
+                    self.fail('%r is not executable' % path)
 
     def test_disk_usage(self):
         self.assert_stdout('disk_usage.py')
