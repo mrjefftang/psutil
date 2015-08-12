@@ -6,9 +6,12 @@ Bug tracker at https://github.com/giampaolo/psutil/issues
 **Enhancements**
 
 - #648: CI test integration for OSX. (patch by Jeff Tang)
+- #663: net_if_addrs() now returns point-to-point addresses (for VPNs).
 
 **Bug fixes**
 
+- #513: [Linux] fixed integer overflow for RLIM_INFINITY.
+- #641: [Windows] fixed many compilation warnings.  (patch by Jeff Tang)
 - #659: [Linux] compilation error on Suse 10.
 - #664: [Linux] compilation error on Alpine Linux. (patch by Bart van Kleef)
 
@@ -18,6 +21,7 @@ Bug tracker at https://github.com/giampaolo/psutil/issues
 
 **Bug fixes**
 
+- #603: [Linux] ionice_set value range is incorrect.  (patch by spacewander)
 - #645: [Linux] psutil.cpu_times_percent() may produce negative results.
 - #656: 'from psutil import *' does not work.
 
