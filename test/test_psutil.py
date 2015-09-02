@@ -405,9 +405,9 @@ def safe_remove(file):
         os.remove(file)
     except OSError as err:
         if err.errno != errno.ENOENT:
-            # file is being used by another process
-            if WINDOWS and isinstance(err, WindowsError) and err.errno == 13:
-                return
+            # # file is being used by another process
+            # if WINDOWS and isinstance(err, WindowsError) and err.errno == 13:
+            #     return
             raise
 
 
@@ -418,6 +418,17 @@ def safe_rmdir(dir):
     except OSError as err:
         if err.errno != errno.ENOENT:
             raise
+
+
+@contextlib.contextmanager
+def chdir(dirname):
+    """Context manager which temporarily changes the current directory."""
+    curdir = os.getcwd()
+    try:
+        os.chdir(dirname)
+        yield
+    finally:
+        os.chdir(curdir)
 
 
 def call_until(fun, expr, timeout=GLOBAL_TIMEOUT):
@@ -3007,6 +3018,7 @@ class TestExampleScripts(unittest.TestCase):
                     self.fail('no test defined for %r script'
                               % os.path.join(EXAMPLES_DIR, name))
 
+    @unittest.skipUnless(POSIX, "UNIX only")
     def test_executable(self):
         for name in os.listdir(EXAMPLES_DIR):
             if name.endswith('.py'):
@@ -3071,6 +3083,72 @@ class TestExampleScripts(unittest.TestCase):
         self.assertIn(str(os.getpid()), output)
 
 
+class TestUnicode(unittest.TestCase):
+    # See: https://github.com/giampaolo/psutil/issues/655
+
+    @classmethod
+    def setUpClass(cls):
+        with tempfile.NamedTemporaryFile() as f:
+            tdir = os.path.dirname(f.name)
+        cls.uexe = os.path.realpath(os.path.join(tdir, "psutil-è.exe"))
+        shutil.copyfile(sys.executable, cls.uexe)
+        if POSIX:
+            st = os.stat(cls.uexe)
+            os.chmod(cls.uexe, st.st_mode | stat.S_IEXEC)
+
+    @classmethod
+    def tearDownClass(cls):
+        if not APPVEYOR:
+            safe_remove(cls.uexe)
+
+    def setUp(self):
+        reap_children()
+
+    tearDown = setUp
+
+    def test_proc_exe(self):
+        subp = get_test_subprocess(cmd=[self.uexe])
+        p = psutil.Process(subp.pid)
+        self.assertIsInstance(p.name(), str)
+        self.assertEqual(os.path.basename(p.name()), "psutil-è.exe")
+
+    def test_proc_name(self):
+        subp = get_test_subprocess(cmd=[self.uexe])
+        if WINDOWS:
+            from psutil._pswindows import py2_strencode
+            name = py2_strencode(psutil._psplatform.cext.proc_name(subp.pid))
+        else:
+            name = psutil.Process(subp.pid).name()
+        self.assertEqual(name, "psutil-è.exe")
+
+    def test_proc_cmdline(self):
+        subp = get_test_subprocess(cmd=[self.uexe])
+        p = psutil.Process(subp.pid)
+        self.assertIsInstance("".join(p.cmdline()), str)
+        self.assertEqual(p.cmdline(), [self.uexe])
+
+    def test_proc_cwd(self):
+        tdir = os.path.realpath(tempfile.mkdtemp(prefix="psutil-è-"))
+        self.addCleanup(safe_rmdir, tdir)
+        with chdir(tdir):
+            p = psutil.Process()
+            self.assertIsInstance(p.cwd(), str)
+            self.assertEqual(p.cwd(), tdir)
+
+    @unittest.skipIf(APPVEYOR, "")
+    def test_proc_open_files(self):
+        p = psutil.Process()
+        start = set(p.open_files())
+        with open(self.uexe, 'rb'):
+            new = set(p.open_files())
+        path = (new - start).pop().path
+        self.assertIsInstance(path, str)
+        if WINDOWS:
+            self.assertEqual(path.lower(), self.uexe.lower())
+        else:
+            self.assertEqual(path, self.uexe)
+
+
 def main():
     tests = []
     test_suite = unittest.TestSuite()
@@ -3080,6 +3158,7 @@ def main():
     tests.append(TestMisc)
     tests.append(TestExampleScripts)
     tests.append(LimitedUserTestCase)
+    tests.append(TestUnicode)
 
     if POSIX:
         from _posix import PosixSpecificTestCase

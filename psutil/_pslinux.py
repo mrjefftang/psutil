@@ -56,7 +56,8 @@ if HAS_PRLIMIT:
 CLOCK_TICKS = os.sysconf("SC_CLK_TCK")
 PAGESIZE = os.sysconf("SC_PAGE_SIZE")
 BOOT_TIME = None  # set later
-DEFAULT_ENCODING = sys.getdefaultencoding()
+if PY3:
+    FS_ENCODING = sys.getfilesystemencoding()
 if enum is None:
     AF_LINK = socket.AF_PACKET
 else:
@@ -113,6 +114,16 @@ NoSuchProcess = None
 ZombieProcess = None
 AccessDenied = None
 TimeoutExpired = None
+
+
+# --- utils
+
+def open_text(fname):
+    """On Python 3 opens a file in text mode by using fs encoding.
+    On Python 2 this is just an alias for open(name, 'rt').
+    """
+    kw = dict(encoding=FS_ENCODING) if PY3 else dict()
+    return open(fname, "rt", **kw)
 
 
 # --- named tuples
@@ -263,7 +274,7 @@ def cpu_count_logical():
         # try to parse /proc/stat as a last resort
         if num == 0:
             search = re.compile('cpu\d')
-            with open('/proc/stat', 'rt') as f:
+            with open_text('/proc/stat') as f:
                 for line in f:
                     line = line.split(' ')[0]
                     if search.match(line):
@@ -471,7 +482,7 @@ class Connections:
         if file.endswith('6') and not os.path.exists(file):
             # IPv6 not supported
             return
-        with open(file, 'rt') as f:
+        with open_text(file) as f:
             f.readline()  # skip the first line
             for line in f:
                 try:
@@ -504,7 +515,9 @@ class Connections:
 
     def process_unix(self, file, family, inodes, filter_pid=None):
         """Parse /proc/net/unix files."""
-        with open(file, 'rt') as f:
+        # see: https://github.com/giampaolo/psutil/issues/675
+        kw = dict(encoding=FS_ENCODING, errors='replace') if PY3 else dict()
+        with open(file, 'rt', **kw) as f:
             f.readline()  # skip the first line
             for line in f:
                 tokens = line.split()
@@ -575,7 +588,7 @@ def net_io_counters():
     """Return network I/O statistics for every network interface
     installed on the system as a dict of raw tuples.
     """
-    with open("/proc/net/dev", "rt") as f:
+    with open_text("/proc/net/dev") as f:
         lines = f.readlines()
     retdict = {}
     for line in lines[2:]:
@@ -626,7 +639,7 @@ def disk_io_counters():
 
     # determine partitions we want to look for
     partitions = []
-    with open("/proc/partitions", "rt") as f:
+    with open_text("/proc/partitions") as f:
         lines = f.readlines()[2:]
     for line in reversed(lines):
         _, _, _, name = line.split()
@@ -643,7 +656,7 @@ def disk_io_counters():
                 partitions.append(name)
     #
     retdict = {}
-    with open("/proc/diskstats", "rt") as f:
+    with open_text("/proc/diskstats") as f:
         lines = f.readlines()
     for line in lines:
         # http://www.mjmwired.net/kernel/Documentation/iostats.txt
@@ -669,7 +682,7 @@ def disk_io_counters():
 def disk_partitions(all=False):
     """Return mounted disk partitions as a list of namedtuples"""
     fstypes = set()
-    with open("/proc/filesystems", "r") as f:
+    with open_text("/proc/filesystems") as f:
         for line in f:
             line = line.strip()
             if not line.startswith("nodev"):
@@ -748,9 +761,7 @@ class Process(object):
 
     @wrap_exceptions
     def name(self):
-        fname = "/proc/%s/stat" % self.pid
-        kw = dict(encoding=DEFAULT_ENCODING) if PY3 else dict()
-        with open(fname, "rt", **kw) as f:
+        with open_text("/proc/%s/stat" % self.pid) as f:
             data = f.read()
         # XXX - gets changed later and probably needs refactoring
         return data[data.find('(') + 1:data.rfind(')')]
@@ -786,9 +797,7 @@ class Process(object):
 
     @wrap_exceptions
     def cmdline(self):
-        fname = "/proc/%s/cmdline" % self.pid
-        kw = dict(encoding=DEFAULT_ENCODING) if PY3 else dict()
-        with open(fname, "rt", **kw) as f:
+        with open_text("/proc/%s/cmdline" % self.pid) as f:
             data = f.read()
         if data.endswith('\x00'):
             data = data[:-1]
@@ -898,7 +907,7 @@ class Process(object):
             Fields are explained in 'man proc'; here is an updated (Apr 2012)
             version: http://goo.gl/fmebo
             """
-            with open("/proc/%s/smaps" % self.pid, "rt") as f:
+            with open_text("/proc/%s/smaps" % self.pid) as f:
                 first_line = f.readline()
                 current_block = [first_line]
 
@@ -1021,7 +1030,7 @@ class Process(object):
 
     @wrap_exceptions
     def nice_get(self):
-        # with open('/proc/%s/stat' % self.pid, 'r') as f:
+        # with open_text('/proc/%s/stat' % self.pid) as f:
         #   data = f.read()
         #   return int(data.split()[18])
 

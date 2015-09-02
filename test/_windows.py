@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# -*- coding: UTF-8 -*
 
 # Copyright (c) 2009, Giampaolo Rodola'. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
@@ -287,8 +288,21 @@ class WindowsSpecificTestCase(unittest.TestCase):
         for p in psutil.process_iter():
             try:
                 p.name()
-            except psutil.NoSuchProcess():
+            except psutil.NoSuchProcess:
                 pass
+
+    @unittest.skipUnless(sys.version_info >= (2, 7),
+                         "CTRL_* signals not supported")
+    def test_ctrl_signals(self):
+        p = psutil.Process(get_test_subprocess().pid)
+        p.send_signal(signal.CTRL_C_EVENT)
+        p.send_signal(signal.CTRL_BREAK_EVENT)
+        p.kill()
+        p.wait()
+        self.assertRaises(psutil.NoSuchProcess,
+                          p.send_signal, signal.CTRL_C_EVENT)
+        self.assertRaises(psutil.NoSuchProcess,
+                          p.send_signal, signal.CTRL_BREAK_EVENT)
 
 
 @unittest.skipUnless(WINDOWS, "not a Windows system")
@@ -458,6 +472,7 @@ def main():
     test_suite.addTest(unittest.makeSuite(TestDualProcessImplementation))
     result = unittest.TextTestRunner(verbosity=2).run(test_suite)
     return result.wasSuccessful()
+
 
 if __name__ == '__main__':
     if not main():

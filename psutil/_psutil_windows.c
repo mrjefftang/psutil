@@ -138,7 +138,6 @@ typedef struct _MIB_UDP6TABLE_OWNER_PID {
     MIB_UDP6ROW_OWNER_PID table[ANY_SIZE];
 } MIB_UDP6TABLE_OWNER_PID, *PMIB_UDP6TABLE_OWNER_PID;
 
-
 PIP_ADAPTER_ADDRESSES
 psutil_get_nic_addresses() {
     // allocate a 15 KB buffer to start with
@@ -639,7 +638,7 @@ static PyObject *
 psutil_proc_name(PyObject *self, PyObject *args) {
     long pid;
     int ok;
-    PROCESSENTRY32 pentry;
+    PROCESSENTRY32W pentry;
     HANDLE hSnapShot;
 
     if (! PyArg_ParseTuple(args, "l", &pid))
@@ -649,8 +648,8 @@ psutil_proc_name(PyObject *self, PyObject *args) {
         PyErr_SetFromWindowsErr(0);
         return NULL;
     }
-    pentry.dwSize = sizeof(PROCESSENTRY32);
-    ok = Process32First(hSnapShot, &pentry);
+    pentry.dwSize = sizeof(PROCESSENTRY32W);
+    ok = Process32FirstW(hSnapShot, &pentry);
     if (! ok) {
         CloseHandle(hSnapShot);
         PyErr_SetFromWindowsErr(0);
@@ -659,9 +658,10 @@ psutil_proc_name(PyObject *self, PyObject *args) {
     while (ok) {
         if (pentry.th32ProcessID == pid) {
             CloseHandle(hSnapShot);
-            return Py_BuildValue("s", pentry.szExeFile);
+            return PyUnicode_FromWideChar(
+                pentry.szExeFile, wcslen(pentry.szExeFile));
         }
-        ok = Process32Next(hSnapShot, &pentry);
+        ok = Process32NextW(hSnapShot, &pentry);
     }
 
     CloseHandle(hSnapShot);
@@ -941,9 +941,7 @@ psutil_proc_cwd(PyObject *self, PyObject *args) {
     PVOID rtlUserProcParamsAddress;
     UNICODE_STRING currentDirectory;
     WCHAR *currentDirectoryContent = NULL;
-    PyObject *returnPyObj = NULL;
-    PyObject *cwd_from_wchar = NULL;
-    PyObject *cwd = NULL;
+    PyObject *py_cwd = NULL;
 
     if (! PyArg_ParseTuple(args, "l", &pid))
         return NULL;
@@ -1024,36 +1022,17 @@ psutil_proc_cwd(PyObject *self, PyObject *args) {
     // currentDirectory.Length is in bytes
     currentDirectoryContent[(currentDirectory.Length / sizeof(WCHAR))] = '\0';
 
-    // convert wchar array to a Python unicode string, and then to UTF8
-    cwd_from_wchar = PyUnicode_FromWideChar(currentDirectoryContent,
-                                            wcslen(currentDirectoryContent));
-    if (cwd_from_wchar == NULL)
+    // convert wchar array to a Python unicode string
+    py_cwd = PyUnicode_FromWideChar(
+        currentDirectoryContent, wcslen(currentDirectoryContent));
+    if (py_cwd == NULL)
         goto error;
-
-#if PY_MAJOR_VERSION >= 3
-    cwd = PyUnicode_FromObject(cwd_from_wchar);
-#else
-    cwd = PyUnicode_AsUTF8String(cwd_from_wchar);
-#endif
-    if (cwd == NULL)
-        goto error;
-
-    // decrement the reference count on our temp unicode str to avoid
-    // mem leak
-    returnPyObj = Py_BuildValue("N", cwd);
-    if (!returnPyObj)
-        goto error;
-
-    Py_DECREF(cwd_from_wchar);
-
     CloseHandle(processHandle);
     free(currentDirectoryContent);
-    return returnPyObj;
+    return py_cwd;
 
 error:
-    Py_XDECREF(cwd_from_wchar);
-    Py_XDECREF(cwd);
-    Py_XDECREF(returnPyObj);
+    Py_XDECREF(py_cwd);
     if (currentDirectoryContent != NULL)
         free(currentDirectoryContent);
     if (processHandle != NULL)
@@ -2159,7 +2138,6 @@ return_:
  */
 static PyObject *
 psutil_net_io_counters(PyObject *self, PyObject *args) {
-    char ifname[MAX_PATH];
     DWORD dwRetVal = 0;
     MIB_IFROW *pIfRow = NULL;
     PIP_ADAPTER_ADDRESSES pAddresses = NULL;
@@ -2205,9 +2183,9 @@ psutil_net_io_counters(PyObject *self, PyObject *args) {
         if (!py_nic_info)
             goto error;
 
-        sprintf_s(ifname, MAX_PATH, "%wS", pCurrAddresses->FriendlyName);
-        py_nic_name = PyUnicode_Decode(
-            ifname, _tcslen(ifname), Py_FileSystemDefaultEncoding, "replace");
+        py_nic_name = PyUnicode_FromWideChar(
+            pCurrAddresses->FriendlyName,
+            wcslen(pCurrAddresses->FriendlyName));
 
         if (py_nic_name == NULL)
             goto error;
@@ -2844,7 +2822,6 @@ psutil_net_if_addrs(PyObject *self, PyObject *args) {
     PCTSTR intRet;
     char *ptr;
     char buff[100];
-    char ifname[MAX_PATH];
     DWORD bufflen = 100;
     PIP_ADAPTER_ADDRESSES pAddresses = NULL;
     PIP_ADAPTER_ADDRESSES pCurrAddresses = NULL;
@@ -2854,6 +2831,7 @@ psutil_net_if_addrs(PyObject *self, PyObject *args) {
     PyObject *py_tuple = NULL;
     PyObject *py_address = NULL;
     PyObject *py_mac_address = NULL;
+    PyObject *py_nic_name = NULL;
 
     if (py_retlist == NULL)
         return NULL;
@@ -2865,7 +2843,12 @@ psutil_net_if_addrs(PyObject *self, PyObject *args) {
 
     while (pCurrAddresses) {
         pUnicast = pCurrAddresses->FirstUnicastAddress;
-        sprintf_s(ifname, MAX_PATH, "%wS", pCurrAddresses->FriendlyName);
+
+        py_nic_name = NULL;
+        py_nic_name = PyUnicode_FromWideChar(pCurrAddresses->FriendlyName,
+                                             wcslen(pCurrAddresses->FriendlyName));
+        if (py_nic_name == NULL)
+            goto error;
 
         // MAC address
         if (pCurrAddresses->PhysicalAddressLength != 0) {
@@ -2896,8 +2879,8 @@ psutil_net_if_addrs(PyObject *self, PyObject *args) {
             Py_INCREF(Py_None);
             Py_INCREF(Py_None);
             py_tuple = Py_BuildValue(
-                "(siOOOO)",
-                ifname,
+                "(OiOOOO)",
+                py_nic_name,
                 -1,  // this will be converted later to AF_LINK
                 py_mac_address,
                 Py_None,  // netmask (not supported)
@@ -2950,8 +2933,8 @@ psutil_net_if_addrs(PyObject *self, PyObject *args) {
                 Py_INCREF(Py_None);
                 Py_INCREF(Py_None);
                 py_tuple = Py_BuildValue(
-                    "(siOOOO)",
-                    ifname,
+                    "(OiOOOO)",
+                    py_nic_name,
                     family,
                     py_address,
                     Py_None,  // netmask (not supported)
@@ -2969,7 +2952,7 @@ psutil_net_if_addrs(PyObject *self, PyObject *args) {
                 pUnicast = pUnicast->Next;
             }
         }
-
+        Py_DECREF(py_nic_name);
         pCurrAddresses = pCurrAddresses->Next;
     }
 
@@ -2982,6 +2965,7 @@ error:
     Py_DECREF(py_retlist);
     Py_XDECREF(py_tuple);
     Py_XDECREF(py_address);
+    Py_XDECREF(py_nic_name);
     return NULL;
 }
 
@@ -3000,10 +2984,10 @@ psutil_net_if_stats(PyObject *self, PyObject *args) {
     MIB_IFROW *pIfRow;
     PIP_ADAPTER_ADDRESSES pAddresses = NULL;
     PIP_ADAPTER_ADDRESSES pCurrAddresses = NULL;
-    char friendly_name[MAX_PATH];
     char descr[MAX_PATH];
     int ifname_found;
 
+    PyObject *py_nic_name = NULL;
     PyObject *py_retdict = PyDict_New();
     PyObject *py_ifc_info = NULL;
     PyObject *py_is_up = NULL;
@@ -3048,7 +3032,11 @@ psutil_net_if_stats(PyObject *self, PyObject *args) {
         while (pCurrAddresses) {
             sprintf_s(descr, MAX_PATH, "%wS", pCurrAddresses->Description);
             if (lstrcmp(descr, pIfRow->bDescr) == 0) {
-                sprintf_s(friendly_name, MAX_PATH, "%wS", pCurrAddresses->FriendlyName);
+                py_nic_name = PyUnicode_FromWideChar(
+                    pCurrAddresses->FriendlyName,
+                    wcslen(pCurrAddresses->FriendlyName));
+                if (py_nic_name == NULL)
+                    goto error;
                 ifname_found = 1;
                 break;
             }
@@ -3062,14 +3050,14 @@ psutil_net_if_stats(PyObject *self, PyObject *args) {
         }
 
         // is up?
-		if((pIfRow->dwOperStatus == MIB_IF_OPER_STATUS_CONNECTED ||
+        if((pIfRow->dwOperStatus == MIB_IF_OPER_STATUS_CONNECTED ||
                 pIfRow->dwOperStatus == MIB_IF_OPER_STATUS_OPERATIONAL) &&
                 pIfRow->dwAdminStatus == 1 ) {
-			py_is_up = Py_True;
-		}
-		else {
-			py_is_up = Py_False;
-		}
+            py_is_up = Py_True;
+        }
+        else {
+            py_is_up = Py_False;
+        }
         Py_INCREF(py_is_up);
 
         py_ifc_info = Py_BuildValue(
@@ -3081,8 +3069,9 @@ psutil_net_if_stats(PyObject *self, PyObject *args) {
         );
         if (!py_ifc_info)
             goto error;
-        if (PyDict_SetItemString(py_retdict, friendly_name, py_ifc_info))
+        if (PyDict_SetItemString(py_retdict, py_nic_name, py_ifc_info))
             goto error;
+        Py_DECREF(py_nic_name);
         Py_DECREF(py_ifc_info);
     }
 
@@ -3093,6 +3082,7 @@ psutil_net_if_stats(PyObject *self, PyObject *args) {
 error:
     Py_XDECREF(py_is_up);
     Py_XDECREF(py_ifc_info);
+    Py_XDECREF(py_nic_name);
     Py_DECREF(py_retdict);
     if (pIfTable != NULL)
         free(pIfTable);

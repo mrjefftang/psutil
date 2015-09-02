@@ -23,7 +23,15 @@
 #include <sys/socket.h>
 #include <linux/sockios.h>
 #include <linux/if.h>
-#include <linux/types.h>
+
+// see: https://github.com/giampaolo/psutil/issues/659
+#ifdef PSUTIL_ETHTOOL_MISSING_TYPES
+    #include <linux/types.h>
+    typedef __u64 u64;
+    typedef __u32 u32;
+    typedef __u16 u16;
+    typedef __u8 u8;
+#endif
 #include <linux/ethtool.h>
 
 #include "_psutil_linux.h"
@@ -629,12 +637,12 @@ PyMODINIT_FUNC PyInit__psutil_linux(void)
 void init_psutil_linux(void)
 #endif
 {
+    PyObject *v;
 #if PY_MAJOR_VERSION >= 3
     PyObject *module = PyModule_Create(&moduledef);
 #else
     PyObject *module = Py_InitModule("_psutil_linux", PsutilMethods);
 #endif
-
 
     PyModule_AddIntConstant(module, "version", PSUTIL_VERSION);
 #if PSUTIL_HAVE_PRLIMIT
@@ -650,7 +658,6 @@ void init_psutil_linux(void)
     PyModule_AddIntConstant(module, "RLIMIT_RSS", RLIMIT_RSS);
     PyModule_AddIntConstant(module, "RLIMIT_STACK", RLIMIT_STACK);
 
-    PyObject *v;
 #if defined(HAVE_LONG_LONG)
     if (sizeof(RLIM_INFINITY) > sizeof(long)) {
         v = PyLong_FromLongLong((PY_LONG_LONG) RLIM_INFINITY);

@@ -158,7 +158,7 @@ __all__ = [
 ]
 __all__.extend(_psplatform.__extra__all__)
 __author__ = "Giampaolo Rodola'"
-__version__ = "3.1.2"
+__version__ = "3.2.0"
 version_info = tuple([int(num) for num in __version__.split('.')])
 AF_LINK = _psplatform.AF_LINK
 _TOTAL_PHYMEM = None
@@ -1039,8 +1039,14 @@ class Process(object):
         else:
             if sig == signal.SIGTERM:
                 self._proc.kill()
+            # py >= 2.7
+            elif sig in (getattr(signal, "CTRL_C_EVENT", object()),
+                         getattr(signal, "CTRL_BREAK_EVENT", object())):
+                self._proc.send_signal(sig)
             else:
-                raise ValueError("only SIGTERM is supported on Windows")
+                raise ValueError(
+                    "only SIGTERM, CTRL_C_EVENT and CTRL_BREAK_EVENT signals "
+                    "are supported on Windows")
 
     @_assert_pid_not_reused
     def suspend(self):
