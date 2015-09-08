@@ -15,6 +15,7 @@ import io
 import os
 import sys
 import tempfile
+import platform
 try:
     from setuptools import setup, Extension
 except ImportError:
@@ -45,11 +46,18 @@ def get_description():
 
 
 @contextlib.contextmanager
-def captured_output(stream_name):
+def silenced_output(stream_name):
+    class DummyFile(io.BytesIO):
+        # see: https://github.com/giampaolo/psutil/issues/678
+        errors = "ignore"
+
+        def write(self, s):
+            pass
+
     orig = getattr(sys, stream_name)
-    setattr(sys, stream_name, io.StringIO())
     try:
-        yield getattr(sys, stream_name)
+        setattr(sys, stream_name, DummyFile())
+        yield
     finally:
         setattr(sys, stream_name, orig)
 
@@ -60,13 +68,15 @@ VERSION_MACRO = ('PSUTIL_VERSION', int(VERSION.replace('.', '')))
 
 # POSIX
 if os.name == 'posix':
-    libraries = []
-    if sys.platform.startswith("sunos"):
-        libraries.append('socket')
     posix_extension = Extension(
         'psutil._psutil_posix',
-        sources=['psutil/_psutil_posix.c'],
-        libraries=libraries)
+        sources=['psutil/_psutil_posix.c'])
+    if sys.platform.startswith("sunos"):
+        posix_extension.libraries.append('socket')
+        if platform.release() == '5.10':
+            posix_extension.sources.append('psutil/arch/solaris/v10/ifaddrs.c')
+            posix_extension.define_macros.append(('PSUTIL_SUNOS10', 1))
+
 # Windows
 if sys.platform.startswith("win32"):
 
@@ -133,14 +143,22 @@ elif sys.platform.startswith("linux"):
         # see: https://github.com/giampaolo/psutil/issues/659
         from distutils.unixccompiler import UnixCCompiler
         from distutils.errors import CompileError
+
         with tempfile.NamedTemporaryFile(
                 suffix='.c', delete=False, mode="wt") as f:
             f.write("#include <linux/ethtool.h>")
-        atexit.register(os.remove, f.name)
+
+        @atexit.register
+        def on_exit():
+            try:
+                os.remove(f.name)
+            except OSError:
+                pass
+
         compiler = UnixCCompiler()
         try:
-            with captured_output('stderr'):
-                with captured_output('stdout'):
+            with silenced_output('stderr'):
+                with silenced_output('stdout'):
                     compiler.compile([f.name])
         except CompileError:
             return ("PSUTIL_ETHTOOL_MISSING_TYPES", 1)

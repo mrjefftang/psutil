@@ -338,38 +338,38 @@ psutil_swap_mem(PyObject *self, PyObject *args) {
 static PyObject *
 psutil_users(PyObject *self, PyObject *args) {
     struct utmpx *ut;
-    PyObject *ret_list = PyList_New(0);
-    PyObject *tuple = NULL;
-    PyObject *user_proc = NULL;
+    PyObject *py_retlist = PyList_New(0);
+    PyObject *py_tuple = NULL;
+    PyObject *py_user_proc = NULL;
 
-    if (ret_list == NULL)
+    if (py_retlist == NULL)
         return NULL;
 
     while (NULL != (ut = getutxent())) {
         if (ut->ut_type == USER_PROCESS)
-            user_proc = Py_True;
+            py_user_proc = Py_True;
         else
-            user_proc = Py_False;
-        tuple = Py_BuildValue(
+            py_user_proc = Py_False;
+        py_tuple = Py_BuildValue(
             "(sssfO)",
             ut->ut_user,              // username
             ut->ut_line,              // tty
             ut->ut_host,              // hostname
             (float)ut->ut_tv.tv_sec,  // tstamp
-            user_proc);               // (bool) user process
-        if (tuple == NULL)
+            py_user_proc);            // (bool) user process
+        if (py_tuple == NULL)
             goto error;
-        if (PyList_Append(ret_list, tuple))
+        if (PyList_Append(py_retlist, py_tuple))
             goto error;
-        Py_DECREF(tuple);
+        Py_DECREF(py_tuple);
     }
     endutent();
 
-    return ret_list;
+    return py_retlist;
 
 error:
-    Py_XDECREF(tuple);
-    Py_DECREF(ret_list);
+    Py_XDECREF(py_tuple);
+    Py_DECREF(py_retlist);
     if (ut != NULL)
         endutent();
     return NULL;
@@ -552,7 +552,7 @@ psutil_proc_memory_maps(PyObject *self, PyObject *args) {
     uintptr_t pr_addr_sz;
     uintptr_t stk_base_sz, brk_base_sz;
 
-    PyObject *pytuple = NULL;
+    PyObject *py_tuple = NULL;
     PyObject *py_retlist = PyList_New(0);
 
     if (py_retlist == NULL)
@@ -633,19 +633,20 @@ psutil_proc_memory_maps(PyObject *self, PyObject *args) {
             }
         }
 
-        pytuple = Py_BuildValue("iisslll",
-                                p->pr_vaddr,
-                                pr_addr_sz,
-                                perms,
-                                name,
-                                (long)p->pr_rss * p->pr_pagesize,
-                                (long)p->pr_anon * p->pr_pagesize,
-                                (long)p->pr_locked * p->pr_pagesize);
-        if (!pytuple)
+        py_tuple = Py_BuildValue(
+            "iisslll",
+            p->pr_vaddr,
+            pr_addr_sz,
+            perms,
+            name,
+            (long)p->pr_rss * p->pr_pagesize,
+            (long)p->pr_anon * p->pr_pagesize,
+            (long)p->pr_locked * p->pr_pagesize);
+        if (!py_tuple)
             goto error;
-        if (PyList_Append(py_retlist, pytuple))
+        if (PyList_Append(py_retlist, py_tuple))
             goto error;
-        Py_DECREF(pytuple);
+        Py_DECREF(py_tuple);
 
         // increment pointer
         p += 1;
@@ -658,7 +659,7 @@ psutil_proc_memory_maps(PyObject *self, PyObject *args) {
 error:
     if (fd != -1)
         close(fd);
-    Py_XDECREF(pytuple);
+    Py_XDECREF(py_tuple);
     Py_DECREF(py_retlist);
     if (xmap != NULL)
         free(xmap);
@@ -674,6 +675,9 @@ psutil_net_io_counters(PyObject *self, PyObject *args) {
     kstat_ctl_t    *kc = NULL;
     kstat_t *ksp;
     kstat_named_t *rbytes, *wbytes, *rpkts, *wpkts, *ierrs, *oerrs;
+    int ret;
+    int sock = -1;
+    struct lifreq ifr;
 
     PyObject *py_retdict = PyDict_New();
     PyObject *py_ifc_info = NULL;
@@ -684,25 +688,32 @@ psutil_net_io_counters(PyObject *self, PyObject *args) {
     if (kc == NULL)
         goto error;
 
+    sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock == -1) {
+        PyErr_SetFromErrno(PyExc_OSError);
+        goto error;
+    }
+
     ksp = kc->kc_chain;
     while (ksp != NULL) {
         if (ksp->ks_type != KSTAT_TYPE_NAMED)
             goto next;
         if (strcmp(ksp->ks_class, "net") != 0)
             goto next;
-        /*
-        // XXX "lo" (localhost) interface makes kstat_data_lookup() fail
-        // (maybe because "ifconfig -a" says it's a virtual interface?).
-        if ((strcmp(ksp->ks_module, "link") != 0) &&
-            (strcmp(ksp->ks_module, "lo") != 0)) {
-            goto skip;
-        */
-        if ((strcmp(ksp->ks_module, "link") != 0))
+        // skip 'lo' (localhost) because it doesn't have the statistics we need
+        // and it makes kstat_data_lookup() fail
+        if (strcmp(ksp->ks_module, "lo") == 0)
+            goto next;
+
+        // check if this is a network interface by sending a ioctl
+        strncpy(ifr.lifr_name, ksp->ks_name, sizeof(ifr.lifr_name));
+        ret = ioctl(sock, SIOCGLIFFLAGS, &ifr);
+        if (ret == -1)
             goto next;
 
         if (kstat_read(kc, ksp, NULL) == -1) {
             errno = 0;
-            continue;
+            goto next;
         }
 
         rbytes = (kstat_named_t *)kstat_data_lookup(ksp, "rbytes");
@@ -719,26 +730,32 @@ psutil_net_io_counters(PyObject *self, PyObject *args) {
             goto error;
         }
 
-#if defined(_INT64_TYPE)
-        py_ifc_info = Py_BuildValue("(KKKKkkii)",
-                                    wbytes->value.ui64,
-                                    rbytes->value.ui64,
-                                    wpkts->value.ui64,
-                                    rpkts->value.ui64,
-                                    ierrs->value.ui32,
-                                    oerrs->value.ui32,
-#else
-        py_ifc_info = Py_BuildValue("(kkkkkkii)",
-                                    wbytes->value.ui32,
-                                    rbytes->value.ui32,
-                                    wpkts->value.ui32,
-                                    rpkts->value.ui32,
-                                    ierrs->value.ui32,
-                                    oerrs->value.ui32,
-#endif
-                                    0,  // dropin not supported
-                                    0   // dropout not supported
-                                   );
+        if (rbytes->data_type == KSTAT_DATA_UINT64)
+        {
+            py_ifc_info = Py_BuildValue("(KKKKIIii)",
+                                        wbytes->value.ui64,
+                                        rbytes->value.ui64,
+                                        wpkts->value.ui64,
+                                        rpkts->value.ui64,
+                                        ierrs->value.ui32,
+                                        oerrs->value.ui32,
+                                        0,  // dropin not supported
+                                        0   // dropout not supported
+                                       );
+        }
+        else
+        {
+            py_ifc_info = Py_BuildValue("(IIIIIIii)",
+                                        wbytes->value.ui32,
+                                        rbytes->value.ui32,
+                                        wpkts->value.ui32,
+                                        rpkts->value.ui32,
+                                        ierrs->value.ui32,
+                                        oerrs->value.ui32,
+                                        0,  // dropin not supported
+                                        0   // dropout not supported
+                                       );
+        }
         if (!py_ifc_info)
             goto error;
         if (PyDict_SetItemString(py_retdict, ksp->ks_name, py_ifc_info))
@@ -751,6 +768,7 @@ next:
     }
 
     kstat_close(kc);
+    close(sock);
     return py_retdict;
 
 error:
@@ -758,6 +776,9 @@ error:
     Py_DECREF(py_retdict);
     if (kc != NULL)
         kstat_close(kc);
+    if (sock != -1) {
+        close(sock);
+    }
     return NULL;
 }
 
@@ -806,14 +827,14 @@ psutil_net_connections(PyObject *self, PyObject *args) {
     PyObject *py_tuple = NULL;
     PyObject *py_laddr = NULL;
     PyObject *py_raddr = NULL;
-    PyObject *af_filter = NULL;
-    PyObject *type_filter = NULL;
+    PyObject *py_af_filter = NULL;
+    PyObject *py_type_filter = NULL;
 
     if (py_retlist == NULL)
         return NULL;
-    if (! PyArg_ParseTuple(args, "lOO", &pid, &af_filter, &type_filter))
+    if (! PyArg_ParseTuple(args, "lOO", &pid, &py_af_filter, &py_type_filter))
         goto error;
-    if (!PySequence_Check(af_filter) || !PySequence_Check(type_filter)) {
+    if (!PySequence_Check(py_af_filter) || !PySequence_Check(py_type_filter)) {
         PyErr_SetString(PyExc_TypeError, "arg 2 or 3 is not a sequence");
         goto error;
     }
@@ -1137,7 +1158,7 @@ psutil_net_if_stats(PyObject* self, PyObject* args) {
     kstat_t *ksp;
     kstat_named_t *knp;
     int ret;
-    int sock = 0;
+    int sock = -1;
     int duplex;
     int speed;
 
@@ -1151,12 +1172,14 @@ psutil_net_if_stats(PyObject* self, PyObject* args) {
     if (kc == NULL)
         goto error;
     sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock == -1)
+    if (sock == -1) {
+        PyErr_SetFromErrno(PyExc_OSError);
         goto error;
+    }
 
     for (ksp = kc->kc_chain; ksp; ksp = ksp->ks_next) {
         if (strcmp(ksp->ks_class, "net") == 0) {
-            struct ifreq ifr;
+            struct lifreq ifr;
 
             kstat_read(kc, ksp, NULL);
             if (ksp->ks_type != KSTAT_TYPE_NAMED)
@@ -1164,13 +1187,13 @@ psutil_net_if_stats(PyObject* self, PyObject* args) {
             if (strcmp(ksp->ks_class, "net") != 0)
                 continue;
 
-            strncpy(ifr.ifr_name, ksp->ks_name, sizeof(ifr.ifr_name));
-            ret = ioctl(sock, SIOCGIFFLAGS, &ifr);
+            strncpy(ifr.lifr_name, ksp->ks_name, sizeof(ifr.lifr_name));
+            ret = ioctl(sock, SIOCGLIFFLAGS, &ifr);
             if (ret == -1)
                 continue;  // not a network interface
 
             // is up?
-            if ((ifr.ifr_flags & IFF_UP) != 0) {
+            if ((ifr.lifr_flags & IFF_UP) != 0) {
                 if ((knp = kstat_data_lookup(ksp, "link_up")) != NULL) {
                     if (knp->value.ui32 != 0u)
                         py_is_up = Py_True;
@@ -1203,12 +1226,12 @@ psutil_net_if_stats(PyObject* self, PyObject* args) {
                 speed = 0;
 
             // mtu
-            ret = ioctl(sock, SIOCGIFMTU, &ifr);
+            ret = ioctl(sock, SIOCGLIFMTU, &ifr);
             if (ret == -1)
                 goto error;
 
             py_ifc_info = Py_BuildValue("(Oiii)", py_is_up, duplex, speed,
-                                        ifr.ifr_mtu);
+                                        ifr.lifr_mtu);
             if (!py_ifc_info)
                 goto error;
             if (PyDict_SetItemString(py_retdict, ksp->ks_name, py_ifc_info))
@@ -1225,7 +1248,7 @@ error:
     Py_XDECREF(py_is_up);
     Py_XDECREF(py_ifc_info);
     Py_DECREF(py_retdict);
-    if (sock != 0)
+    if (sock != -1)
         close(sock);
     if (kc != NULL)
         kstat_close(kc);

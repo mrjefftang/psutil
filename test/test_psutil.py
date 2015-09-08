@@ -516,6 +516,31 @@ def supports_ipv6():
             sock.close()
 
 
+def create_temp_executable_file(suffix):
+    tmpdir = None
+    if TRAVIS and OSX:
+        tmpdir = "/private/tmp"
+    fd, path = tempfile.mkstemp(
+        prefix='psu', suffix=suffix, dir=tmpdir)
+    os.close(fd)
+
+    if which("gcc"):
+        fd, c_file = tempfile.mkstemp(
+            prefix='psu', suffix='.c', dir=tmpdir)
+        os.close(fd)
+        with open(c_file, "w") as f:
+            f.write("void main() { pause(); }")
+        subprocess.check_call(["gcc", c_file, "-o", path])
+        safe_remove(c_file)
+    else:
+        # fallback - use python's executable
+        shutil.copyfile(sys.executable, path)
+        if POSIX:
+            st = os.stat(path)
+            os.chmod(path, st.st_mode | stat.S_IEXEC)
+    return path
+
+
 if WINDOWS:
     def get_winver():
         wv = sys.getwindowsversion()
@@ -755,7 +780,7 @@ class TestSystemAPIs(unittest.TestCase):
         self.assertEqual(logical, len(psutil.cpu_times(percpu=True)))
         self.assertGreaterEqual(logical, 1)
         #
-        if LINUX:
+        if os.path.exists("/proc/cpuinfo"):
             with open("/proc/cpuinfo") as fd:
                 cpuinfo_data = fd.read()
             if "physical id" not in cpuinfo_data:
@@ -774,19 +799,23 @@ class TestSystemAPIs(unittest.TestCase):
             total += cp_time
         self.assertEqual(total, sum(times))
         str(times)
-        if not WINDOWS:
-            # CPU times are always supposed to increase over time or
-            # remain the same but never go backwards, see:
-            # https://github.com/giampaolo/psutil/issues/392
-            last = psutil.cpu_times()
-            for x in range(100):
-                new = psutil.cpu_times()
-                for field in new._fields:
-                    new_t = getattr(new, field)
-                    last_t = getattr(last, field)
-                    self.assertGreaterEqual(new_t, last_t,
-                                            msg="%s %s" % (new_t, last_t))
-                last = new
+        # CPU times are always supposed to increase over time
+        # or at least remain the same and that's because time
+        # cannot go backwards.
+        # Surprisingly sometimes this might not be the case (at
+        # least on Windows and Linux), see:
+        # https://github.com/giampaolo/psutil/issues/392
+        # https://github.com/giampaolo/psutil/issues/645
+        # if not WINDOWS:
+        #     last = psutil.cpu_times()
+        #     for x in range(100):
+        #         new = psutil.cpu_times()
+        #         for field in new._fields:
+        #             new_t = getattr(new, field)
+        #             last_t = getattr(last, field)
+        #             self.assertGreaterEqual(new_t, last_t,
+        #                                     msg="%s %s" % (new_t, last_t))
+        #         last = new
 
     def test_sys_cpu_times2(self):
         t1 = sum(psutil.cpu_times())
@@ -1381,7 +1410,8 @@ class TestProcess(unittest.TestCase):
     def test_terminal(self):
         terminal = psutil.Process().terminal()
         if sys.stdin.isatty():
-            self.assertEqual(terminal, sh('tty'))
+            tty = os.path.realpath(sh('tty'))
+            self.assertEqual(terminal, tty)
         else:
             assert terminal, repr(terminal)
 
@@ -1641,7 +1671,8 @@ class TestProcess(unittest.TestCase):
             if not nt.path.startswith('['):
                 assert os.path.isabs(nt.path), nt.path
                 if POSIX:
-                    assert os.path.exists(nt.path), nt.path
+                    assert os.path.exists(nt.path) or \
+                        os.path.islink(nt.path), nt.path
                 else:
                     # XXX - On Windows we have this strange behavior with
                     # 64 bit dlls: they are visible via explorer but cannot
@@ -1681,7 +1712,8 @@ class TestProcess(unittest.TestCase):
         except AssertionError:
             if WINDOWS and len(exe) == len(PYTHON):
                 # on Windows we don't care about case sensitivity
-                self.assertEqual(exe.lower(), PYTHON.lower())
+                normcase = os.path.normcase
+                self.assertEqual(normcase(exe), normcase(PYTHON))
             else:
                 # certain platforms such as BSD are more accurate returning:
                 # "/usr/local/bin/python2.7"
@@ -1704,36 +1736,20 @@ class TestProcess(unittest.TestCase):
         pyexe = os.path.basename(os.path.realpath(sys.executable)).lower()
         assert pyexe.startswith(name), (pyexe, name)
 
-    @unittest.skipUnless(POSIX, "posix only")
-    # TODO: add support for other compilers
-    @unittest.skipUnless(which("gcc"), "gcc not available")
     def test_prog_w_funky_name(self):
         # Test that name(), exe() and cmdline() correctly handle programs
         # with funky chars such as spaces and ")", see:
         # https://github.com/giampaolo/psutil/issues/628
-        # funky_path = os.path.join(tempfile.gettempdir(), "foo bar )")
-        if OSX:
-            tmpdir = "/private/tmp"
-        else:
-            tmpdir = "/tmp"
-        fd, funky_path = tempfile.mkstemp(
-            prefix='psutil-', suffix='foo bar )', dir=tmpdir)
-        os.close(fd)
-        fd, c_file = tempfile.mkstemp(
-            prefix='psutil-', suffix='.c', dir=tmpdir)
-        os.close(fd)
-        self.addCleanup(safe_remove, c_file)
+        funky_path = create_temp_executable_file('foo bar )')
         self.addCleanup(safe_remove, funky_path)
-        with open(c_file, "w") as f:
-            f.write("void main() { pause(); }")
-        subprocess.check_call(["gcc", c_file, "-o", funky_path])
         sproc = get_test_subprocess(
             [funky_path, "arg1", "arg2", "", "arg3", ""])
         p = psutil.Process(sproc.pid)
         # ...in order to try to prevent occasional failures on travis
         wait_for_pid(p.pid)
+        normcase = os.path.normcase
         self.assertEqual(p.name(), os.path.basename(funky_path))
-        self.assertEqual(p.exe(), funky_path)
+        self.assertEqual(normcase(p.exe()), normcase(funky_path))
         self.assertEqual(
             p.cmdline(), [funky_path, "arg1", "arg2", "", "arg3", ""])
 
@@ -3088,13 +3104,9 @@ class TestUnicode(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        with tempfile.NamedTemporaryFile() as f:
-            tdir = os.path.dirname(f.name)
-        cls.uexe = os.path.realpath(os.path.join(tdir, "psutil-è.exe"))
-        shutil.copyfile(sys.executable, cls.uexe)
-        if POSIX:
-            st = os.stat(cls.uexe)
-            os.chmod(cls.uexe, st.st_mode | stat.S_IEXEC)
+        cls.uexe = create_temp_executable_file('è')
+        cls.ubasename = os.path.basename(cls.uexe)
+        assert 'è' in cls.ubasename
 
     @classmethod
     def tearDownClass(cls):
@@ -3110,7 +3122,7 @@ class TestUnicode(unittest.TestCase):
         subp = get_test_subprocess(cmd=[self.uexe])
         p = psutil.Process(subp.pid)
         self.assertIsInstance(p.name(), str)
-        self.assertEqual(os.path.basename(p.name()), "psutil-è.exe")
+        self.assertEqual(os.path.basename(p.name()), self.ubasename)
 
     def test_proc_name(self):
         subp = get_test_subprocess(cmd=[self.uexe])
@@ -3119,7 +3131,7 @@ class TestUnicode(unittest.TestCase):
             name = py2_strencode(psutil._psplatform.cext.proc_name(subp.pid))
         else:
             name = psutil.Process(subp.pid).name()
-        self.assertEqual(name, "psutil-è.exe")
+        self.assertEqual(name, self.ubasename)
 
     def test_proc_cmdline(self):
         subp = get_test_subprocess(cmd=[self.uexe])
@@ -3143,10 +3155,7 @@ class TestUnicode(unittest.TestCase):
             new = set(p.open_files())
         path = (new - start).pop().path
         self.assertIsInstance(path, str)
-        if WINDOWS:
-            self.assertEqual(path.lower(), self.uexe.lower())
-        else:
-            self.assertEqual(path, self.uexe)
+        self.assertEqual(os.path.normcase(path), os.path.normcase(self.uexe))
 
 
 def main():
