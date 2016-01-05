@@ -13,12 +13,22 @@ import sys
 import time
 
 import psutil
-
 from psutil._compat import PY3, callable
-from test_psutil import LINUX, SUNOS, OSX, BSD, PYTHON, POSIX, TRAVIS
-from test_psutil import (get_test_subprocess, skip_on_access_denied,
-                         retry_before_failing, reap_children, sh, unittest,
-                         get_kernel_version, wait_for_pid)
+from test_psutil import BSD
+from test_psutil import get_kernel_version
+from test_psutil import get_test_subprocess
+from test_psutil import LINUX
+from test_psutil import OSX
+from test_psutil import POSIX
+from test_psutil import PYTHON
+from test_psutil import reap_children
+from test_psutil import retry_before_failing
+from test_psutil import sh
+from test_psutil import skip_on_access_denied
+from test_psutil import SUNOS
+from test_psutil import TRAVIS
+from test_psutil import unittest
+from test_psutil import wait_for_pid
 
 
 def ps(cmd):
@@ -144,6 +154,11 @@ class PosixSpecificTestCase(unittest.TestCase):
             # ps on Solaris only shows the first part of the cmdline
             psutil_cmdline = psutil_cmdline.split(" ")[0]
         self.assertEqual(ps_cmdline, psutil_cmdline)
+
+    def test_process_nice(self):
+        ps_nice = ps("ps --no-headers -o nice -p %s" % self.pid)
+        psutil_nice = psutil.Process().nice()
+        self.assertEqual(ps_nice, psutil_nice)
 
     @retry_before_failing()
     def test_pids(self):

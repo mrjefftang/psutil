@@ -19,6 +19,7 @@ import signal
 import subprocess
 import sys
 import time
+import traceback
 try:
     import pwd
 except ImportError:
@@ -26,59 +27,64 @@ except ImportError:
 
 from . import _common
 from ._common import memoize
-from ._compat import callable, long
+from ._compat import callable
+from ._compat import long
 from ._compat import PY3 as _PY3
 
-from ._common import (STATUS_RUNNING,  # NOQA
-                      STATUS_SLEEPING,
-                      STATUS_DISK_SLEEP,
-                      STATUS_STOPPED,
-                      STATUS_TRACING_STOP,
-                      STATUS_ZOMBIE,
-                      STATUS_DEAD,
-                      STATUS_WAKING,
-                      STATUS_LOCKED,
-                      STATUS_IDLE,  # bsd
-                      STATUS_WAITING)  # bsd
+from ._common import STATUS_DEAD
+from ._common import STATUS_DISK_SLEEP
+from ._common import STATUS_IDLE  # bsd
+from ._common import STATUS_LOCKED
+from ._common import STATUS_RUNNING
+from ._common import STATUS_SLEEPING
+from ._common import STATUS_STOPPED
+from ._common import STATUS_TRACING_STOP
+from ._common import STATUS_WAITING  # bsd
+from ._common import STATUS_WAKING
+from ._common import STATUS_ZOMBIE
 
-from ._common import (CONN_ESTABLISHED,
-                      CONN_SYN_SENT,
-                      CONN_SYN_RECV,
-                      CONN_FIN_WAIT1,
-                      CONN_FIN_WAIT2,
-                      CONN_TIME_WAIT,
-                      CONN_CLOSE,
-                      CONN_CLOSE_WAIT,
-                      CONN_LAST_ACK,
-                      CONN_LISTEN,
-                      CONN_CLOSING,
-                      CONN_NONE)
+from ._common import CONN_CLOSE
+from ._common import CONN_CLOSE_WAIT
+from ._common import CONN_CLOSING
+from ._common import CONN_ESTABLISHED
+from ._common import CONN_FIN_WAIT1
+from ._common import CONN_FIN_WAIT2
+from ._common import CONN_LAST_ACK
+from ._common import CONN_LISTEN
+from ._common import CONN_NONE
+from ._common import CONN_SYN_RECV
+from ._common import CONN_SYN_SENT
+from ._common import CONN_TIME_WAIT
 
-from ._common import (NIC_DUPLEX_FULL,  # NOQA
-                      NIC_DUPLEX_HALF,
-                      NIC_DUPLEX_UNKNOWN)
+from ._common import NIC_DUPLEX_FULL
+from ._common import NIC_DUPLEX_HALF
+from ._common import NIC_DUPLEX_UNKNOWN
 
 if sys.platform.startswith("linux"):
+    # This is public API and it will be retrieved from _pslinux.py
+    # via sys.modules.
+    PROCFS_PATH = "/proc"
+
     from . import _pslinux as _psplatform
 
-    from ._pslinux import (IOPRIO_CLASS_NONE,  # NOQA
-                           IOPRIO_CLASS_RT,
-                           IOPRIO_CLASS_BE,
-                           IOPRIO_CLASS_IDLE)
+    from ._pslinux import IOPRIO_CLASS_BE  # NOQA
+    from ._pslinux import IOPRIO_CLASS_IDLE  # NOQA
+    from ._pslinux import IOPRIO_CLASS_NONE  # NOQA
+    from ._pslinux import IOPRIO_CLASS_RT  # NOQA
     # Linux >= 2.6.36
     if _psplatform.HAS_PRLIMIT:
-        from ._psutil_linux import (RLIM_INFINITY,  # NOQA
-                                    RLIMIT_AS,
-                                    RLIMIT_CORE,
-                                    RLIMIT_CPU,
-                                    RLIMIT_DATA,
-                                    RLIMIT_FSIZE,
-                                    RLIMIT_LOCKS,
-                                    RLIMIT_MEMLOCK,
-                                    RLIMIT_NOFILE,
-                                    RLIMIT_NPROC,
-                                    RLIMIT_RSS,
-                                    RLIMIT_STACK)
+        from ._psutil_linux import RLIM_INFINITY  # NOQA
+        from ._psutil_linux import RLIMIT_AS  # NOQA
+        from ._psutil_linux import RLIMIT_CORE  # NOQA
+        from ._psutil_linux import RLIMIT_CPU  # NOQA
+        from ._psutil_linux import RLIMIT_DATA  # NOQA
+        from ._psutil_linux import RLIMIT_FSIZE  # NOQA
+        from ._psutil_linux import RLIMIT_LOCKS  # NOQA
+        from ._psutil_linux import RLIMIT_MEMLOCK  # NOQA
+        from ._psutil_linux import RLIMIT_NOFILE  # NOQA
+        from ._psutil_linux import RLIMIT_NPROC  # NOQA
+        from ._psutil_linux import RLIMIT_RSS  # NOQA
+        from ._psutil_linux import RLIMIT_STACK  # NOQA
         # Kinda ugly but considerably faster than using hasattr() and
         # setattr() against the module object (we are at import time:
         # speed matters).
@@ -103,28 +109,27 @@ if sys.platform.startswith("linux"):
             RLIMIT_SIGPENDING = _psutil_linux.RLIMIT_SIGPENDING
         except AttributeError:
             pass
-        del _psutil_linux
 
 elif sys.platform.startswith("win32"):
     from . import _pswindows as _psplatform
-    from ._psutil_windows import (ABOVE_NORMAL_PRIORITY_CLASS,  # NOQA
-                                  BELOW_NORMAL_PRIORITY_CLASS,
-                                  HIGH_PRIORITY_CLASS,
-                                  IDLE_PRIORITY_CLASS,
-                                  NORMAL_PRIORITY_CLASS,
-                                  REALTIME_PRIORITY_CLASS)
+    from ._psutil_windows import ABOVE_NORMAL_PRIORITY_CLASS  # NOQA
+    from ._psutil_windows import BELOW_NORMAL_PRIORITY_CLASS  # NOQA
+    from ._psutil_windows import HIGH_PRIORITY_CLASS  # NOQA
+    from ._psutil_windows import IDLE_PRIORITY_CLASS  # NOQA
+    from ._psutil_windows import NORMAL_PRIORITY_CLASS  # NOQA
+    from ._psutil_windows import REALTIME_PRIORITY_CLASS  # NOQA
     from ._pswindows import CONN_DELETE_TCB  # NOQA
 
 elif sys.platform.startswith("darwin"):
     from . import _psosx as _psplatform
 
-elif sys.platform.startswith("freebsd"):
+elif sys.platform.startswith("freebsd") or sys.platform.startswith("openbsd"):
     from . import _psbsd as _psplatform
 
 elif sys.platform.startswith("sunos"):
     from . import _pssunos as _psplatform
-    from ._pssunos import (CONN_IDLE,  # NOQA
-                           CONN_BOUND)
+    from ._pssunos import CONN_BOUND  # NOQA
+    from ._pssunos import CONN_IDLE  # NOQA
 
 else:  # pragma: no cover
     raise NotImplementedError('platform %s is not supported' % sys.platform)
@@ -157,12 +162,13 @@ __all__ = [
 ]
 __all__.extend(_psplatform.__extra__all__)
 __author__ = "Giampaolo Rodola'"
-__version__ = "3.2.2"
+__version__ = "3.3.1"
 version_info = tuple([int(num) for num in __version__.split('.')])
 AF_LINK = _psplatform.AF_LINK
 _TOTAL_PHYMEM = None
 _POSIX = os.name == 'posix'
 _WINDOWS = os.name == 'nt'
+_OPENBSD = sys.platform.startswith("openbsd")
 _timer = getattr(time, 'monotonic', time.time)
 
 
@@ -489,6 +495,10 @@ class Process(object):
             # Process identity / uniqueness over time is guaranteed by
             # (PID + creation time) and that is verified in __eq__.
             return self == Process(self.pid)
+        except ZombieProcess:
+            # We should never get here as it's already handled in
+            # Process.__init__; here just for extra safety.
+            return True
         except NoSuchProcess:
             self._gone = True
             return False
@@ -519,25 +529,29 @@ class Process(object):
 
     def name(self):
         """The process name. The return value is cached after first call."""
-        if self._name is None:
-            name = self._proc.name()
-            if _POSIX and len(name) >= 15:
-                # On UNIX the name gets truncated to the first 15 characters.
-                # If it matches the first part of the cmdline we return that
-                # one instead because it's usually more explicative.
-                # Examples are "gnome-keyring-d" vs. "gnome-keyring-daemon".
-                try:
-                    cmdline = self.cmdline()
-                except AccessDenied:
-                    pass
-                else:
-                    if cmdline:
-                        extended_name = os.path.basename(cmdline[0])
-                        if extended_name.startswith(name):
-                            name = extended_name
-            self._proc._name = name
-            self._name = name
-        return self._name
+        # Process name is only cached on Windows as on POSIX it may
+        # change, see:
+        # https://github.com/giampaolo/psutil/issues/692
+        if _WINDOWS and self._name is not None:
+            return self._name
+        name = self._proc.name()
+        if _POSIX and len(name) >= 15:
+            # On UNIX the name gets truncated to the first 15 characters.
+            # If it matches the first part of the cmdline we return that
+            # one instead because it's usually more explicative.
+            # Examples are "gnome-keyring-d" vs. "gnome-keyring-daemon".
+            try:
+                cmdline = self.cmdline()
+            except AccessDenied:
+                pass
+            else:
+                if cmdline:
+                    extended_name = os.path.basename(cmdline[0])
+                    if extended_name.startswith(name):
+                        name = extended_name
+        self._name = name
+        self._proc._name = name
+        return name
 
     def exe(self):
         """The process executable as an absolute path.
@@ -707,7 +721,7 @@ class Process(object):
             else:
                 return self._proc.rlimit(resource, limits)
 
-    # Windows, Linux and BSD only
+    # Windows, Linux and FreeBSD only
     if hasattr(_psplatform.Process, "cpu_affinity_get"):
 
         def cpu_affinity(self, cpus=None):
@@ -746,6 +760,7 @@ class Process(object):
         """Return threads opened by process as a list of
         (id, user_time, system_time) namedtuples representing
         thread id and thread CPU times (user/system).
+        On OpenBSD this method requires root access.
         """
         return self._proc.threads()
 
@@ -953,32 +968,33 @@ class Process(object):
         except ZeroDivisionError:
             return 0.0
 
-    def memory_maps(self, grouped=True):
-        """Return process' mapped memory regions as a list of namedtuples
-        whose fields are variable depending on the platform.
+    if not _OPENBSD:
+        def memory_maps(self, grouped=True):
+            """Return process' mapped memory regions as a list of namedtuples
+            whose fields are variable depending on the platform.
 
-        If 'grouped' is True the mapped regions with the same 'path'
-        are grouped together and the different memory fields are summed.
+            If 'grouped' is True the mapped regions with the same 'path'
+            are grouped together and the different memory fields are summed.
 
-        If 'grouped' is False every mapped region is shown as a single
-        entity and the namedtuple will also include the mapped region's
-        address space ('addr') and permission set ('perms').
-        """
-        it = self._proc.memory_maps()
-        if grouped:
-            d = {}
-            for tupl in it:
-                path = tupl[2]
-                nums = tupl[3:]
-                try:
-                    d[path] = map(lambda x, y: x + y, d[path], nums)
-                except KeyError:
-                    d[path] = nums
-            nt = _psplatform.pmmap_grouped
-            return [nt(path, *d[path]) for path in d]  # NOQA
-        else:
-            nt = _psplatform.pmmap_ext
-            return [nt(*x) for x in it]
+            If 'grouped' is False every mapped region is shown as a single
+            entity and the namedtuple will also include the mapped region's
+            address space ('addr') and permission set ('perms').
+            """
+            it = self._proc.memory_maps()
+            if grouped:
+                d = {}
+                for tupl in it:
+                    path = tupl[2]
+                    nums = tupl[3:]
+                    try:
+                        d[path] = map(lambda x, y: x + y, d[path], nums)
+                    except KeyError:
+                        d[path] = nums
+                nt = _psplatform.pmmap_grouped
+                return [nt(path, *d[path]) for path in d]  # NOQA
+            else:
+                nt = _psplatform.pmmap_ext
+                return [nt(*x) for x in it]
 
     def open_files(self):
         """Return files opened by process as a list of
@@ -1020,8 +1036,13 @@ class Process(object):
                 os.kill(self.pid, sig)
             except OSError as err:
                 if err.errno == errno.ESRCH:
-                    self._gone = True
-                    raise NoSuchProcess(self.pid, self._name)
+                    if _OPENBSD and pid_exists(self.pid):
+                        # We do this because os.kill() lies in case of
+                        # zombie processes.
+                        raise ZombieProcess(self.pid, self._name, self._ppid)
+                    else:
+                        self._gone = True
+                        raise NoSuchProcess(self.pid, self._name)
                 if err.errno in (errno.EPERM, errno.EACCES):
                     raise AccessDenied(self.pid, self._name)
                 raise
@@ -1254,7 +1275,12 @@ def process_iter():
             # no way to tell whether the pid of the cached process
             # has been reused. Just return the cached version.
             if proc is None and pid in _pmap:
-                yield _pmap[pid]
+                try:
+                    yield _pmap[pid]
+                except KeyError:
+                    # If we get here it is likely that 2 threads were
+                    # using process_iter().
+                    pass
             else:
                 raise
 
@@ -1397,8 +1423,19 @@ def cpu_times(percpu=False):
         return _psplatform.per_cpu_times()
 
 
-_last_cpu_times = cpu_times()
-_last_per_cpu_times = cpu_times(percpu=True)
+try:
+    _last_cpu_times = cpu_times()
+except Exception:
+    # Don't want to crash at import time.
+    _last_cpu_times = None
+    traceback.print_exc()
+
+try:
+    _last_per_cpu_times = cpu_times(percpu=True)
+except Exception:
+    # Don't want to crash at import time.
+    _last_per_cpu_times = None
+    traceback.print_exc()
 
 
 def cpu_percent(interval=None, percpu=False):
@@ -1463,6 +1500,11 @@ def cpu_percent(interval=None, percpu=False):
             time.sleep(interval)
         else:
             t1 = _last_cpu_times
+            if t1 is None:
+                # Something bad happened at import time. We'll
+                # get a meaningful result on the next call. See:
+                # https://github.com/giampaolo/psutil/pull/715
+                t1 = cpu_times()
         _last_cpu_times = cpu_times()
         return calculate(t1, _last_cpu_times)
     # per-cpu usage
@@ -1473,6 +1515,11 @@ def cpu_percent(interval=None, percpu=False):
             time.sleep(interval)
         else:
             tot1 = _last_per_cpu_times
+            if tot1 is None:
+                # Something bad happened at import time. We'll
+                # get a meaningful result on the next call. See:
+                # https://github.com/giampaolo/psutil/pull/715
+                tot1 = cpu_times(percpu=True)
         _last_per_cpu_times = cpu_times(percpu=True)
         for t1, t2 in zip(tot1, _last_per_cpu_times):
             ret.append(calculate(t1, t2))
@@ -1537,6 +1584,11 @@ def cpu_times_percent(interval=None, percpu=False):
             time.sleep(interval)
         else:
             t1 = _last_cpu_times_2
+            if t1 is None:
+                # Something bad happened at import time. We'll
+                # get a meaningful result on the next call. See:
+                # https://github.com/giampaolo/psutil/pull/715
+                t1 = cpu_times()
         _last_cpu_times_2 = cpu_times()
         return calculate(t1, _last_cpu_times_2)
     # per-cpu usage
@@ -1547,6 +1599,11 @@ def cpu_times_percent(interval=None, percpu=False):
             time.sleep(interval)
         else:
             tot1 = _last_per_cpu_times_2
+            if tot1 is None:
+                # Something bad happened at import time. We'll
+                # get a meaningful result on the next call. See:
+                # https://github.com/giampaolo/psutil/pull/715
+                tot1 = cpu_times(percpu=True)
         _last_per_cpu_times_2 = cpu_times(percpu=True)
         for t1, t2 in zip(tot1, _last_per_cpu_times_2):
             ret.append(calculate(t1, t2))

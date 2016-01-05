@@ -22,10 +22,6 @@
     :target: https://github.com/giampaolo/psutil/
     :alt: Github stars
 
-.. image:: https://img.shields.io/scrutinizer/g/giampaolo/psutil.svg
-    :target: https://scrutinizer-ci.com/g/giampaolo/psutil/
-    :alt: Code quality (scrutinizer-ci.com)
-
 .. image:: https://img.shields.io/pypi/l/psutil.svg
     :target: https://pypi.python.org/pypi/psutil/
     :alt: License
@@ -54,9 +50,9 @@ monitoring**, **profiling and limiting process resources** and **management of
 running processes**. It implements many functionalities offered by command line
 tools such as: ps, top, lsof, netstat, ifconfig, who, df, kill, free, nice,
 ionice, iostat, iotop, uptime, pidof, tty, taskset, pmap. It currently supports
-**Linux, Windows, OSX, FreeBSD** and **Sun Solaris**, both **32-bit** and
-**64-bit** architectures, with Python versions from **2.6 to 3.5** (users of
-Python 2.4 and 2.5 may use `2.1.3 <https://pypi.python.org/pypi?name=psutil&version=2.1.3&:action=files>`__ version).
+**Linux, Windows, OSX, FreeBSD, OpenBSD** and **Sun Solaris**, both **32-bit**
+and **64-bit** architectures, with Python versions from **2.6 to 3.5** (users
+of Python 2.4 and 2.5 may use `2.1.3 <https://pypi.python.org/pypi?name=psutil&version=2.1.3&:action=files>`__ version).
 `PyPy <http://pypy.org/>`__ is also known to work.
 
 ====================
@@ -350,6 +346,8 @@ http://groups.google.com/group/psutil/
 Timeline
 ========
 
+- 2015-11-25: `psutil-3.3.0.tar.gz <https://pypi.python.org/packages/source/p/psutil/psutil-3.3.0.tar.gz>`_
+- 2015-10-04: `psutil-3.2.2.tar.gz <https://pypi.python.org/packages/source/p/psutil/psutil-3.2.2.tar.gz>`_
 - 2015-09-03: `psutil-3.2.1.tar.gz <https://pypi.python.org/packages/source/p/psutil/psutil-3.2.1.tar.gz>`_
 - 2015-09-02: `psutil-3.2.0.tar.gz <https://pypi.python.org/packages/source/p/psutil/psutil-3.2.0.tar.gz>`_
 - 2015-07-15: `psutil-3.1.1.tar.gz <https://pypi.python.org/packages/source/p/psutil/psutil-3.1.1.tar.gz>`_

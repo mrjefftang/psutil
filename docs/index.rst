@@ -1,14 +1,13 @@
 .. module:: psutil
    :synopsis: psutil module
 .. moduleauthor:: Giampaolo Rodola' <grodola@gmail.com>
-
-.. warning::
-
-   This documentation refers to new 2.X version of psutil.
+.. note::
+   This documentation refers to new 3.X version of psutil.
    Instructions on how to port existing 1.2.1 code are
    `here <http://grodola.blogspot.com/2014/01/psutil-20-porting.html>`__.
    Old 1.2.1 documentation is still available
    `here <https://code.google.com/p/psutil/wiki/Documentation>`__.
+.. versionchanged:: 3.3.0 added support for OpenBSD
 
 psutil documentation
 ====================
@@ -40,7 +39,7 @@ From project's home page:
   ionice, iostat, iotop, uptime, pidof, tty, taskset, pmap*.
   It currently supports **Linux, Windows, OSX, FreeBSD** and **Sun Solaris**,
   both **32-bit** and **64-bit** architectures, with Python versions from
-  **2.6 to 3.4** (users of Python 2.4 and 2.5 may use `2.1.3 <https://pypi.python.org/pypi?name=psutil&version=2.1.3&:action=files>`__ version).
+  **2.6 to 3.5** (users of Python 2.4 and 2.5 may use `2.1.3 <https://pypi.python.org/pypi?name=psutil&version=2.1.3&:action=files>`__ version).
   `PyPy <http://pypy.org/>`__ is also known to work.
 
 The psutil documentation you're reading is distributed as a single HTML page.
@@ -455,9 +454,9 @@ Network
   .. note:: *netmask*, *broadcast* and *ptp* are not supported on Windows and
     are set to ``None``.
 
-  *New in 3.0.0*
+  .. versionadded:: 3.0.0
 
-  *Changed in 3.2.0:* *ptp* field was added.
+  .. versionchanged:: 3.2.0 *ptp* field was added.
 
 .. function:: net_if_stats()
 
@@ -484,11 +483,24 @@ Network
     {'eth0': snicstats(isup=True, duplex=<NicDuplex.NIC_DUPLEX_FULL: 2>, speed=100, mtu=1500),
      'lo': snicstats(isup=True, duplex=<NicDuplex.NIC_DUPLEX_UNKNOWN: 0>, speed=0, mtu=65536)}
 
-  *New in 3.0.0*
+  .. versionadded:: 3.0.0
 
 
 Other system info
 -----------------
+
+.. function:: boot_time()
+
+  Return the system boot time expressed in seconds since the epoch.
+  Example:
+
+  .. code-block:: python
+
+     >>> import psutil, datetime
+     >>> psutil.boot_time()
+     1389563460.0
+     >>> datetime.datetime.fromtimestamp(psutil.boot_time()).strftime("%Y-%m-%d %H:%M:%S")
+     '2014-01-12 22:51:00'
 
 .. function:: users()
 
@@ -508,19 +520,6 @@ Other system info
     >>> psutil.users()
     [suser(name='giampaolo', terminal='pts/2', host='localhost', started=1340737536.0),
      suser(name='giampaolo', terminal='pts/3', host='localhost', started=1340737792.0)]
-
-.. function:: boot_time()
-
-  Return the system boot time expressed in seconds since the epoch.
-  Example:
-
-  .. code-block:: python
-
-     >>> import psutil, datetime
-     >>> psutil.boot_time()
-     1389563460.0
-     >>> datetime.datetime.fromtimestamp(psutil.boot_time()).strftime("%Y-%m-%d %H:%M:%S")
-     '2014-01-12 22:51:00'
 
 Processes
 =========
@@ -615,7 +614,7 @@ Exceptions
    interested in retrieving zombies (e.g. when using :func:`process_iter()`)
    you can ignore this exception and just catch :class:`NoSuchProcess`.
 
-   *New in 3.0.0*
+  .. versionadded:: 3.0.0
 
 .. class:: AccessDenied(pid=None, name=None, msg=None)
 
@@ -637,7 +636,8 @@ Process class
   is used.
   Raise :class:`NoSuchProcess` if *pid* does not exist.
   When accessing methods of this class always be  prepared to catch
-  :class:`NoSuchProcess` and :class:`AccessDenied` exceptions.
+  :class:`NoSuchProcess`, :class:`ZombieProcess` and :class:`AccessDenied`
+  exceptions.
   `hash() <http://docs.python.org/2/library/functions.html#hash>`__ builtin can
   be used against instances of this class in order to identify a process
   univocally over time (the hash is determined by mixing process PID
@@ -646,10 +646,10 @@ Process class
 
   .. warning::
 
-    the way this class is bound to a process is uniquely via its **PID**.
+    the way this class is bound to a process is via its **PID**.
     That means that if the :class:`Process` instance is old enough and
-    the PID has been reused by another process in the meantime you might end up
-    interacting with another process.
+    the PID has been reused in the meantime you might end up interacting
+    with another process.
     The only exceptions for which process identity is pre-emptively checked
     (via PID + creation time) and guaranteed are for
     :meth:`nice` (set),
@@ -679,7 +679,7 @@ Process class
 
   .. method:: name()
 
-     The process name. The return value is cached after first call.
+     The process name.
 
   .. method:: exe()
 
@@ -707,9 +707,9 @@ Process class
 
   .. method:: as_dict(attrs=None, ad_value=None)
 
-     Utility method returning process information as a hashable dictionary.
+     Utility method retrieving multiple process information as a dictionary.
      If *attrs* is specified it must be a list of strings reflecting available
-     :class:`Process` class's attribute names (e.g. ``['cpu_times', 'name']``)
+     :class:`Process` class's attribute names (e.g. ``['cpu_times', 'name']``),
      else all public (read only) attributes are assumed. *ad_value* is the
      value which gets assigned to a dict key in case :class:`AccessDenied`
      or :class:`ZombieProcess` exception is raised when retrieving that
@@ -748,7 +748,7 @@ Process class
      The **real**, **effective** and **saved** user ids of this process as a
      namedtuple. This is the same as
      `os.getresuid() <http://docs.python.org//library/os.html#os.getresuid>`__
-     but can be used for every process PID.
+     but can be used for any process PID.
 
      Availability: UNIX
 
@@ -757,14 +757,14 @@ Process class
      The **real**, **effective** and **saved** group ids of this process as a
      namedtuple. This is the same as
      `os.getresgid() <http://docs.python.org//library/os.html#os.getresgid>`__
-     but can be used for every process PID.
+     but can be used for any process PID.
 
      Availability: UNIX
 
   .. method:: terminal()
 
      The terminal associated with this process, if any, else ``None``. This is
-     similar to "tty" command but can be used for every process PID.
+     similar to "tty" command but can be used for any process PID.
 
      Availability: UNIX
 
@@ -788,13 +788,12 @@ Process class
      and
      `os.setpriority() <http://docs.python.org/3/library/os.html#os.setpriority>`__
      (UNIX only).
-
-     On Windows this is available as well by using
+     On Windows this is implemented via
      `GetPriorityClass <http://msdn.microsoft.com/en-us/library/ms683211(v=vs.85).aspx>`__
      and `SetPriorityClass <http://msdn.microsoft.com/en-us/library/ms686219(v=vs.85).aspx>`__
-     and *value* is one of the
+     Windows APIs and *value* is one of the
      :data:`psutil.*_PRIORITY_CLASS <psutil.ABOVE_NORMAL_PRIORITY_CLASS>`
-     constants.
+     constants reflecting the MSDN documentation.
      Example which increases process priority on Windows:
 
         >>> p.nice(psutil.HIGH_PRIORITY_CLASS)
@@ -835,7 +834,8 @@ Process class
      *limits* is a ``(soft, hard)`` tuple.
      This is the same as `resource.getrlimit() <http://docs.python.org/library/resource.html#resource.getrlimit>`__
      and `resource.setrlimit() <http://docs.python.org/library/resource.html#resource.setrlimit>`__
-     but can be used for every process PID and only on Linux.
+     but can be used for any process PID, not only
+     `os.getpid() <http://docs.python.org/library/os.html#os.getpid>`__.
      Example:
 
       >>> import psutil
@@ -887,12 +887,13 @@ Process class
 
   .. method:: num_threads()
 
-     The number of threads currently used by this process.
+     The number of threads used by this process.
 
   .. method:: threads()
 
      Return threads opened by process as a list of namedtuples including thread
-     id and thread CPU times (user/system).
+     id and thread CPU times (user/system). On OpenBSD this method requires
+     root access.
 
   .. method:: cpu_times()
 
@@ -902,7 +903,7 @@ Process class
      `user / system mode <http://stackoverflow.com/questions/556405/what-do-real-user-and-sys-mean-in-the-output-of-time1>`__.
      This is similar to
      `os.times() <http://docs.python.org//library/os.html#os.times>`__
-     but can be used for every process PID.
+     but can be used for any process PID.
 
   .. method:: cpu_percent(interval=None)
 
@@ -941,8 +942,8 @@ Process class
      `CPU affinity <http://www.linuxjournal.com/article/6799?page=0,0>`__.
      CPU affinity consists in telling the OS to run a certain process on a
      limited set of CPUs only. The number of eligible CPUs can be obtained with
-     ``list(range(psutil.cpu_count()))``. On set raises ``ValueError`` in case
-     an invalid CPU number is specified.
+     ``list(range(psutil.cpu_count()))``. ``ValueError`` will be raise on set
+     in case an invalid CPU number is specified.
 
       >>> import psutil
       >>> psutil.cpu_count()
@@ -959,7 +960,7 @@ Process class
       >>> p.cpu_affinity(all_cpus)
       >>>
 
-     Availability: Linux, Windows, BSD
+     Availability: Linux, Windows, FreeBSD
 
      .. versionchanged:: 2.2.0 added support for FreeBSD
 
@@ -1017,19 +1018,19 @@ Process class
 
   .. method:: memory_maps(grouped=True)
 
-     Return process's mapped memory regions as a list of namedtuples whose
-     fields are variable depending on the platform. As such, portable
-     applications should rely on namedtuple's `path` and `rss` fields only.
-     This method is useful to obtain a detailed representation of process
-     memory usage as explained
-     `here <http://bmaurer.blogspot.it/2006/03/memory-usage-with-smaps.html>`__.
-     If *grouped* is ``True`` the mapped regions with the same *path* are
-     grouped together and the different memory fields are summed.  If *grouped*
-     is ``False`` every mapped region is shown as a single entity and the
-     namedtuple will also include the mapped region's address space (*addr*)
-     and permission set (*perms*).
-     See `examples/pmap.py <https://github.com/giampaolo/psutil/blob/master/examples/pmap.py>`__
-     for an example application.
+    Return process's mapped memory regions as a list of namedtuples whose
+    fields are variable depending on the platform. As such, portable
+    applications should rely on namedtuple's `path` and `rss` fields only.
+    This method is useful to obtain a detailed representation of process
+    memory usage as explained
+    `here <http://bmaurer.blogspot.it/2006/03/memory-usage-with-smaps.html>`__.
+    If *grouped* is ``True`` the mapped regions with the same *path* are
+    grouped together and the different memory fields are summed.  If *grouped*
+    is ``False`` every mapped region is shown as a single entity and the
+    namedtuple will also include the mapped region's address space (*addr*)
+    and permission set (*perms*).
+    See `examples/pmap.py <https://github.com/giampaolo/psutil/blob/master/examples/pmap.py>`__
+    for an example application.
 
       >>> import psutil
       >>> p = psutil.Process()
@@ -1041,6 +1042,8 @@ Process class
        pmmap_grouped(path='[stack]', rss=1542, anonymous=166, swap=0),
        ...]
       >>>
+
+    Availability: All platforms except OpenBSD.
 
   .. method:: children(recursive=False)
 
@@ -1089,7 +1092,8 @@ Process class
        `here <https://github.com/giampaolo/psutil/pull/597>`_).
 
      .. warning::
-       on FreeBSD this method can return files with a 'null' path (see
+       on FreeBSD and OpenBSD this method can return files with a 'null' path
+       due to a kernel bug (see
        `issue 595 <https://github.com/giampaolo/psutil/pull/595>`_).
 
      .. versionchanged:: 3.1.0 no longer hangs on Windows.
@@ -1188,8 +1192,7 @@ Process class
      signals are supported and **SIGTERM** is treated as an alias for
      :meth:`kill()`.
 
-     *Changed in 3.2.0:* support for CTRL_C_EVENT and CTRL_BREAK_EVENT signals
-     was added.
+     .. versionchanged:: 3.2.0 support for CTRL_C_EVENT and CTRL_BREAK_EVENT signals on Windows was added.
 
   .. method:: suspend()
 
@@ -1278,6 +1281,16 @@ Popen class
 
 Constants
 =========
+
+.. _const-pstatus:
+.. data:: PROCFS_PATH
+
+  The path of the /proc filesystem on Linux (defaults to "/proc"). You may want
+  to re-set this in case /proc is mounted elsewhere.
+
+  Availability: Linux
+
+  .. versionadded:: 3.2.3
 
 .. _const-pstatus:
 .. data:: STATUS_RUNNING
@@ -1394,7 +1407,7 @@ Constants
   Constant which identifies a MAC address associated with a network interface.
   To be used in conjunction with :func:`psutil.net_if_addrs()`.
 
-  *New in 3.0.0*
+  .. versionadded:: 3.0.0
 
 .. _const-duplex:
 .. data:: NIC_DUPLEX_FULL
@@ -1407,7 +1420,7 @@ Constants
   receive data at a time.
   To be used in conjunction with :func:`psutil.net_if_stats()`.
 
-  *New in 3.0.0*
+  .. versionadded:: 3.0.0
 
 Development guide
 =================

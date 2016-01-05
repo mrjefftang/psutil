@@ -44,6 +44,9 @@
 #include "arch/osx/process_info.h"
 
 
+#define PSUTIL_TV2DOUBLE(t) ((t).tv_sec + (t).tv_usec / 1000000.0)
+
+
 /*
  * A wrapper around host_statistics() invoked with HOST_VM_INFO.
  */
@@ -61,6 +64,20 @@ psutil_sys_vminfo(vm_statistics_data_t *vmstat) {
     }
     mach_port_deallocate(mach_task_self(), mport);
     return 1;
+}
+
+
+/*
+ * Set exception to AccessDenied if pid exists else NoSuchProcess.
+ */
+void
+psutil_raise_ad_or_nsp(long pid) {
+    int ret;
+    ret = psutil_pid_exists(pid);
+    if (ret == 0)
+        NoSuchProcess();
+    else
+        AccessDenied();
 }
 
 
@@ -158,10 +175,8 @@ psutil_proc_exe(PyObject *self, PyObject *args) {
         return NULL;
     ret = proc_pidpath(pid, &buf, sizeof(buf));
     if (ret == 0) {
-        if (! psutil_pid_exists(pid))
-            return NoSuchProcess();
-        else
-            return AccessDenied();
+        psutil_raise_ad_or_nsp(pid);
+        return NULL;
     }
     return Py_BuildValue("s", buf);
 }
@@ -279,14 +294,7 @@ psutil_proc_memory_maps(PyObject *self, PyObject *args) {
     err = task_for_pid(mach_task_self(), pid, &task);
 
     if (err != KERN_SUCCESS) {
-        if (! psutil_pid_exists(pid)) {
-            NoSuchProcess();
-        }
-        else {
-            // pid exists, so return AccessDenied error since task_for_pid()
-            // failed
-            AccessDenied();
-        }
+        psutil_raise_ad_or_nsp(pid);
         goto error;
     }
 
@@ -434,8 +442,6 @@ psutil_cpu_count_phys(PyObject *self, PyObject *args) {
 }
 
 
-#define TV2DOUBLE(t)    ((t).tv_sec + (t).tv_usec / 1000000.0)
-
 /*
  * Return a Python tuple (user_time, kernel_time)
  */
@@ -466,7 +472,7 @@ psutil_proc_create_time(PyObject *self, PyObject *args) {
         return NULL;
     if (psutil_get_kinfo_proc(pid, &kp) == -1)
         return NULL;
-    return Py_BuildValue("d", TV2DOUBLE(kp.kp_proc.p_starttime));
+    return Py_BuildValue("d", PSUTIL_TV2DOUBLE(kp.kp_proc.p_starttime));
 }
 
 
@@ -883,10 +889,7 @@ psutil_proc_threads(PyObject *self, PyObject *args) {
     // task_for_pid() requires special privileges
     err = task_for_pid(mach_task_self(), pid, &task);
     if (err != KERN_SUCCESS) {
-        if (! psutil_pid_exists(pid))
-            NoSuchProcess();
-        else
-            AccessDenied();
+        psutil_raise_ad_or_nsp(pid);
         goto error;
     }
 

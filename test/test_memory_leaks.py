@@ -20,12 +20,22 @@ import time
 
 import psutil
 import psutil._common
-
-from psutil._compat import xrange, callable
-from test_psutil import (WINDOWS, POSIX, OSX, LINUX, SUNOS, BSD, TESTFN,
-                         RLIMIT_SUPPORT, TRAVIS)
-from test_psutil import (reap_children, supports_ipv6, safe_remove,
-                         get_test_subprocess)
+from psutil._compat import callable
+from psutil._compat import xrange
+from test_psutil import FREEBSD
+from test_psutil import get_test_subprocess
+from test_psutil import LINUX
+from test_psutil import OPENBSD
+from test_psutil import OSX
+from test_psutil import POSIX
+from test_psutil import reap_children
+from test_psutil import RLIMIT_SUPPORT
+from test_psutil import safe_remove
+from test_psutil import SUNOS
+from test_psutil import supports_ipv6
+from test_psutil import TESTFN
+from test_psutil import TRAVIS
+from test_psutil import WINDOWS
 
 if sys.version_info < (2, 7):
     import unittest2 as unittest  # https://pypi.python.org/pypi/unittest2
@@ -237,12 +247,12 @@ class TestProcessObjectLeaks(Base):
     def test_cwd(self):
         self.execute('cwd')
 
-    @unittest.skipUnless(WINDOWS or LINUX or BSD,
+    @unittest.skipUnless(WINDOWS or LINUX or FREEBSD,
                          "Windows or Linux or BSD only")
     def test_cpu_affinity_get(self):
         self.execute('cpu_affinity')
 
-    @unittest.skipUnless(WINDOWS or LINUX or BSD,
+    @unittest.skipUnless(WINDOWS or LINUX or FREEBSD,
                          "Windows or Linux or BSD only")
     def test_cpu_affinity_set(self):
         affinity = psutil.Process().cpu_affinity()
@@ -258,6 +268,7 @@ class TestProcessObjectLeaks(Base):
 
     # OSX implementation is unbelievably slow
     @unittest.skipIf(OSX, "OSX implementation is too slow")
+    @unittest.skipIf(OPENBSD, "not implemented on OpenBSD")
     @skip_if_linux()
     def test_memory_maps(self):
         self.execute('memory_maps')

@@ -9,11 +9,9 @@ https://github.com/giampaolo/psutil/issues
 PLATFORMS
 =========
 
- * #615 (PR): OpenBSD
+ * #429 (patch): NetBSD
 
  * #355 (patch): Android
-
- * #429 (patch): NetBSD
 
  * #605 (branch): AIX
 
@@ -35,6 +33,8 @@ HIGHER PRIORITY
 
  * Process.threads(): thread names; patch for OSX available at:
    https://code.google.com/p/plcrashreporter/issues/detail?id=65
+   Sample code:
+   https://github.com/janmojzis/pstree/blob/master/proc_kvm.c
 
  * Asynchronous psutil.Popen (see http://bugs.python.org/issue1191964)
 
